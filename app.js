@@ -102,19 +102,22 @@
     }
   }
 
-  // Initialize Data
+  // Initialize Data (Aggressive cache-busting to guarantee latest founder briefing)
   function initData() {
-    if (window.SPEED_NEWS_DATA && window.SPEED_NEWS_DATA.stories) {
-      applyData(window.SPEED_NEWS_DATA);
-    } else {
-      fetch('data.json')
-        .then(r => r.json())
-        .then(data => applyData(data))
-        .catch(err => {
-          console.error('Failed to load data.json:', err);
+    fetch('data.json?t=' + Date.now(), { cache: 'no-store' })
+      .then(r => {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json();
+      })
+      .then(data => applyData(data))
+      .catch(err => {
+        console.warn('Direct fetch failed, falling back to window.SPEED_NEWS_DATA:', err);
+        if (window.SPEED_NEWS_DATA && window.SPEED_NEWS_DATA.stories) {
+          applyData(window.SPEED_NEWS_DATA);
+        } else {
           newsHeadline.textContent = 'समाचार लोड करने में समस्या आई। कृपया पृष्ठ रीफ्रेश करें।';
-        });
-    }
+        }
+      });
   }
 
   function applyData(data) {
