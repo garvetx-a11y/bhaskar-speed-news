@@ -51,7 +51,7 @@
       <!-- Meta & Category Header -->
       <div class="card-meta">
         <span class="category-badge" id="categoryBadge">💡 आज का शुभ विचार</span>
-        <span class="counter-badge" id="storyCounter">1 / 25</span>
+        <span class="counter-badge" id="storyCounter">1 / 24</span>
       </div>
 
       <!-- Headline -->
@@ -93,6 +93,9 @@
       </div>
     </article>
   </main>
+
+  <!-- Native HTML5 DOM Audio Engine (Crucial for Mobile & Cross-Browser Autoplay) -->
+  <audio id="mainAudio" playsinline preload="auto"></audio>
 
   <!-- Bottom Playback Control Bar -->
   <footer class="playback-bar">
@@ -145,6 +148,8 @@
   </aside>
   <div class="drawer-backdrop hidden" id="drawerBackdrop"></div>
 
+  <!-- Synchronous preloaded news data for 0ms startup -->
+  <script src="data.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

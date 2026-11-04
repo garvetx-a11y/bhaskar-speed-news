@@ -1,9 +1,10 @@
 /**
  * Dainik Bhaskar Superfast Speed News Player (दैनिक भास्कर स्पीड न्यूज़)
- * Powered by HTML5 Audio Engine & Edge-TTS / gTTS Studio Audio
+ * Native HTML5 DOM Audio Engine + Studio News Anchor MP3 Voiceovers
+ * - Instant startup via preloaded data.js
+ * - Synchronous auto-advance on story end (continuous mobile playback)
  * - 1.0x, 1.5x, 2.0x Dynamic Playback Speed
- * - 100% Reliable Cross-Platform Audio (Mobile, Linux, Android, iOS, Brave)
- * - Automatic Auto-Advance when story ends (TV speed news bulletin)
+ * - Web Speech API & Timer fallback
  * - Fullscreen Pinch & Pan Zoom for Authentic Newspaper Clippings
  */
 
@@ -13,23 +14,12 @@
   // State
   let stories = [];
   let currentIndex = 0;
-  let currentSpeed = 1.5; // Default 1.5x speed as requested!
+  let currentSpeed = 1.5; // Default 1.5x speed
   let isPlaying = false;
-
-  // HTML5 Audio Player
-  const audioPlayer = new Audio();
-  audioPlayer.preload = 'auto';
-
-  // Zoom Modal State
-  let zoomScale = 1;
-  let panX = 0;
-  let panY = 0;
-  let isDragging = false;
-  let startX = 0;
-  let startY = 0;
-  let initialPinchDistance = null;
+  let fallbackTimer = null;
 
   // DOM Elements
+  const audioEl = document.getElementById('mainAudio');
   const newsCard = document.getElementById('newsCard');
   const currentDateEl = document.getElementById('currentDate');
   const categoryBadge = document.getElementById('categoryBadge');
@@ -69,31 +59,44 @@
   // Speed Buttons
   const speedButtons = document.querySelectorAll('.speed-btn');
 
-  // Load Data
-  async function loadData() {
-    try {
-      const resp = await fetch('data.json?t=' + Date.now());
-      if (!resp.ok) throw new Error('data.json not found');
-      const data = await resp.json();
+  // Zoom Modal Pan & Pinch State
+  let zoomScale = 1;
+  let panX = 0;
+  let panY = 0;
+  let isDragging = false;
+  let startX = 0;
+  let startY = 0;
+  let initialPinchDistance = null;
 
-      if (data.date) {
-        currentDateEl.textContent = data.date;
-      }
-
-      stories = data.stories || [];
-      if (stories.length === 0) {
-        newsHeadline.textContent = 'आज का स्पीड न्यूज़ बुलेटिन तैयार हो रहा है...';
-        return;
-      }
-
-      totalStoriesBadge.textContent = stories.length;
-      buildProgressSegments();
-      buildPlaylistDrawer();
-      renderStory(0);
-    } catch (err) {
-      console.error('Failed to load news data:', err);
-      newsHeadline.textContent = 'खबरें लोड करने में समस्या आई। कृपया पृष्ठ रीफ्रेश करें।';
+  // Initialize Data
+  function initData() {
+    if (window.SPEED_NEWS_DATA && window.SPEED_NEWS_DATA.stories) {
+      applyData(window.SPEED_NEWS_DATA);
+    } else {
+      fetch('data.json')
+        .then(r => r.json())
+        .then(data => applyData(data))
+        .catch(err => {
+          console.error('Failed to load data.json:', err);
+          newsHeadline.textContent = 'समाचार लोड करने में समस्या आई। कृपया पृष्ठ रीफ्रेश करें।';
+        });
     }
+  }
+
+  function applyData(data) {
+    if (data.date) {
+      currentDateEl.textContent = data.date;
+    }
+    stories = data.stories || [];
+    if (stories.length === 0) {
+      newsHeadline.textContent = 'आज का स्पीड न्यूज़ बुलेटिन तैयार हो रहा है...';
+      return;
+    }
+
+    totalStoriesBadge.textContent = stories.length;
+    buildProgressSegments();
+    buildPlaylistDrawer();
+    renderStory(0);
   }
 
   // Build Progress Segments
@@ -144,6 +147,12 @@
     currentIndex = index;
     const story = stories[index];
 
+    // Clear fallback timer
+    if (fallbackTimer) {
+      clearInterval(fallbackTimer);
+      fallbackTimer = null;
+    }
+
     // Meta
     categoryBadge.textContent = story.category || '⚡ स्पीड न्यूज़';
     storyCounter.textContent = `${index + 1} / ${stories.length}`;
@@ -168,18 +177,11 @@
       });
     }
 
-    // Set Audio Source
+    // Prepare Audio Element
     if (story.audio_url) {
-      audioPlayer.src = story.audio_url;
-      audioPlayer.playbackRate = currentSpeed;
-    }
-
-    // Preload next story audio
-    if (index + 1 < stories.length && stories[index + 1].audio_url) {
-      const preloadLink = document.createElement('link');
-      preloadLink.rel = 'prefetch';
-      preloadLink.href = stories[index + 1].audio_url;
-      document.head.appendChild(preloadLink);
+      audioEl.src = story.audio_url;
+      audioEl.playbackRate = currentSpeed;
+      audioEl.load();
     }
 
     // Update Progress Segments
@@ -204,21 +206,44 @@
     });
   }
 
-  // Playback Control
+  // Audio Playback Engine
   function startAudio() {
     isPlaying = true;
-    audioPlayer.playbackRate = currentSpeed;
-    const playPromise = audioPlayer.play();
+    updatePlayPauseUI(true);
+
+    const story = stories[currentIndex];
+    if (!story) return;
+
+    // Ensure audio src is loaded
+    if (!audioEl.src || !audioEl.src.includes(story.audio_url)) {
+      audioEl.src = story.audio_url;
+    }
+    audioEl.playbackRate = currentSpeed;
+
+    const playPromise = audioEl.play();
     if (playPromise !== undefined) {
-      playPromise.catch(err => {
-        console.warn('Playback blocked or pending user gesture:', err);
+      playPromise.then(() => {
+        // Playback started successfully
+        voiceIndicator.classList.add('speaking');
+      }).catch(err => {
+        console.warn('Audio play failed, falling back to Web Speech / Timer:', err);
+        tryWebSpeech(story);
       });
     }
   }
 
   function pauseAudio() {
     isPlaying = false;
-    audioPlayer.pause();
+    audioEl.pause();
+    updatePlayPauseUI(false);
+    voiceIndicator.classList.remove('speaking');
+    if (fallbackTimer) {
+      clearInterval(fallbackTimer);
+      fallbackTimer = null;
+    }
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+    }
   }
 
   function togglePlayPause() {
@@ -230,39 +255,29 @@
   }
 
   function jumpToStory(idx) {
-    audioPlayer.pause();
+    if (fallbackTimer) {
+      clearInterval(fallbackTimer);
+      fallbackTimer = null;
+    }
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+    }
+    audioEl.pause();
     renderStory(idx);
   }
 
-  // Audio Event Listeners
-  audioPlayer.addEventListener('play', () => {
-    isPlaying = true;
-    playIcon.classList.add('hidden');
-    pauseIcon.classList.remove('hidden');
-    voiceIndicator.classList.add('speaking');
-  });
-
-  audioPlayer.addEventListener('pause', () => {
-    isPlaying = false;
-    playIcon.classList.remove('hidden');
-    pauseIcon.classList.add('hidden');
-    voiceIndicator.classList.remove('speaking');
-  });
-
-  audioPlayer.addEventListener('timeupdate', () => {
-    if (!audioPlayer.duration) return;
-    const activeSeg = progressBarContainer.children[currentIndex];
-    if (activeSeg) {
-      const inner = activeSeg.querySelector('.progress-segment-inner');
-      if (inner) {
-        const pct = (audioPlayer.currentTime / audioPlayer.duration) * 100;
-        inner.style.width = pct + '%';
-      }
+  function updatePlayPauseUI(playing) {
+    if (playing) {
+      playIcon.classList.add('hidden');
+      pauseIcon.classList.remove('hidden');
+    } else {
+      playIcon.classList.remove('hidden');
+      pauseIcon.classList.add('hidden');
     }
-  });
+  }
 
-  // AUTO-ADVANCE: When story audio finishes, smoothly move to next story!
-  audioPlayer.addEventListener('ended', () => {
+  // Synchronous Auto-Advance Handler (Crucial for Mobile Chain Playback)
+  function handleStoryEnd() {
     const activeSeg = progressBarContainer.children[currentIndex];
     if (activeSeg) {
       const inner = activeSeg.querySelector('.progress-segment-inner');
@@ -271,24 +286,110 @@
     }
 
     if (currentIndex < stories.length - 1) {
-      // Auto-play next story after a 0.35s natural transition pause
-      setTimeout(() => {
-        jumpToStory(currentIndex + 1);
+      // Immediate synchronous transition ensures mobile gesture chain is preserved!
+      const nextIdx = currentIndex + 1;
+      jumpToStory(nextIdx);
+      if (isPlaying) {
         startAudio();
-      }, 350);
+      }
     } else {
-      // Reached end of playlist
+      // Finished all stories
       isPlaying = false;
-      playIcon.classList.remove('hidden');
-      pauseIcon.classList.add('hidden');
+      updatePlayPauseUI(false);
+      voiceIndicator.classList.remove('speaking');
+    }
+  }
+
+  // Audio Event Listeners
+  audioEl.addEventListener('play', () => {
+    isPlaying = true;
+    updatePlayPauseUI(true);
+    voiceIndicator.classList.add('speaking');
+  });
+
+  audioEl.addEventListener('pause', () => {
+    // Only update if not transitioning between tracks
+    if (!audioEl.seeking) {
       voiceIndicator.classList.remove('speaking');
     }
   });
 
-  audioPlayer.addEventListener('error', (e) => {
-    console.warn('Audio playback error on story:', currentIndex, e);
-    voiceIndicator.classList.remove('speaking');
+  audioEl.addEventListener('timeupdate', () => {
+    if (!audioEl.duration) return;
+    const activeSeg = progressBarContainer.children[currentIndex];
+    if (activeSeg) {
+      const inner = activeSeg.querySelector('.progress-segment-inner');
+      if (inner) {
+        const pct = (audioEl.currentTime / audioEl.duration) * 100;
+        inner.style.width = pct + '%';
+      }
+    }
   });
+
+  audioEl.addEventListener('ended', handleStoryEnd);
+
+  audioEl.addEventListener('error', (e) => {
+    console.warn('Audio element error, falling back:', e);
+    const story = stories[currentIndex];
+    if (story) tryWebSpeech(story);
+  });
+
+  // Fallback Engine 1: Web Speech API
+  function tryWebSpeech(story) {
+    if (!('speechSynthesis' in window)) {
+      runVisualTimerFallback(story);
+      return;
+    }
+
+    window.speechSynthesis.cancel();
+    const textToSpeak = `${story.headline}। ${story.voiceover}`;
+    const utterance = new SpeechSynthesisUtterance(textToSpeak);
+    utterance.lang = 'hi-IN';
+    utterance.rate = currentSpeed;
+
+    utterance.onstart = () => {
+      voiceIndicator.classList.add('speaking');
+    };
+
+    utterance.onend = () => {
+      voiceIndicator.classList.remove('speaking');
+      handleStoryEnd();
+    };
+
+    utterance.onerror = () => {
+      voiceIndicator.classList.remove('speaking');
+      runVisualTimerFallback(story);
+    };
+
+    window.speechSynthesis.speak(utterance);
+  }
+
+  // Fallback Engine 2: Visual Progress Timer (Ensures Bulletin NEVER Freezes)
+  function runVisualTimerFallback(story) {
+    if (fallbackTimer) clearInterval(fallbackTimer);
+    voiceIndicator.classList.add('speaking');
+
+    const activeSeg = progressBarContainer.children[currentIndex];
+    const innerBar = activeSeg ? activeSeg.querySelector('.progress-segment-inner') : null;
+    let pct = 0;
+    const durationMs = 8000 / currentSpeed;
+    const stepMs = 50;
+
+    fallbackTimer = setInterval(() => {
+      if (!isPlaying) {
+        clearInterval(fallbackTimer);
+        return;
+      }
+      pct += (stepMs / durationMs) * 100;
+      if (innerBar) innerBar.style.width = Math.min(100, pct) + '%';
+      if (pct >= 100) {
+        clearInterval(fallbackTimer);
+        fallbackTimer = null;
+        voiceIndicator.classList.remove('speaking');
+        handleStoryEnd();
+      }
+    }, stepMs);
+  }
 
   // Speed Selector Buttons (1.0x, 1.5x, 2.0x)
   speedButtons.forEach(btn => {
@@ -296,11 +397,11 @@
       speedButtons.forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
       currentSpeed = parseFloat(btn.dataset.speed) || 1.5;
-      audioPlayer.playbackRate = currentSpeed;
+      audioEl.playbackRate = currentSpeed;
     });
   });
 
-  // Play / Pause Button Listener
+  // Controls
   playPauseBtn.addEventListener('click', togglePlayPause);
 
   prevBtn.addEventListener('click', () => {
@@ -491,13 +592,11 @@
     if (Math.abs(diff) > 60) {
       const wasPlaying = isPlaying;
       if (diff < 0) {
-        // Swipe left -> Next
         if (currentIndex < stories.length - 1) {
           jumpToStory(currentIndex + 1);
           if (wasPlaying) startAudio();
         }
       } else {
-        // Swipe right -> Prev
         if (currentIndex > 0) {
           jumpToStory(currentIndex - 1);
           if (wasPlaying) startAudio();
@@ -518,7 +617,7 @@
     );
   }
 
-  // Load playlist data on startup
-  loadData();
+  // Startup
+  initData();
 
 })();
