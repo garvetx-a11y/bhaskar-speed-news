@@ -1,10 +1,10 @@
 /**
- * Dainik Bhaskar Speed News Player (दैनिक भास्कर सुपरफास्ट स्पीड न्यूज़)
- * Features:
- * - High-speed voiceover (1.0x, 1.5x, 2.0x) using Web Speech API
- * - Auto-advancing news bulletins (TV style)
- * - Authentic newspaper clipping viewer with Full-Screen Pinch & Pan Zoom
- * - Playlist drawer, touch swipe, and keyboard navigation
+ * Dainik Bhaskar Superfast Speed News Player (दैनिक भास्कर स्पीड न्यूज़)
+ * Powered by HTML5 Audio Engine & Edge-TTS / gTTS Studio Audio
+ * - 1.0x, 1.5x, 2.0x Dynamic Playback Speed
+ * - 100% Reliable Cross-Platform Audio (Mobile, Linux, Android, iOS, Brave)
+ * - Automatic Auto-Advance when story ends (TV speed news bulletin)
+ * - Fullscreen Pinch & Pan Zoom for Authentic Newspaper Clippings
  */
 
 (function () {
@@ -13,14 +13,14 @@
   // State
   let stories = [];
   let currentIndex = 0;
-  let isPlaying = false;
   let currentSpeed = 1.5; // Default 1.5x speed as requested!
-  let hindiVoice = null;
-  let currentUtterance = null;
-  let progressInterval = null;
-  let autoAdvanceTimer = null;
+  let isPlaying = false;
 
-  // Zoom Modal Pan & Pinch State
+  // HTML5 Audio Player
+  const audioPlayer = new Audio();
+  audioPlayer.preload = 'auto';
+
+  // Zoom Modal State
   let zoomScale = 1;
   let panX = 0;
   let panY = 0;
@@ -69,27 +69,6 @@
   // Speed Buttons
   const speedButtons = document.querySelectorAll('.speed-btn');
 
-  // Initialize Speech Synthesis
-  function initSpeechEngine() {
-    if (!('speechSynthesis' in window)) {
-      console.warn('Speech Synthesis not supported in this browser.');
-      return;
-    }
-
-    const loadVoices = () => {
-      const voices = window.speechSynthesis.getVoices();
-      // Look for Hindi voice
-      hindiVoice = voices.find(v => v.lang.startsWith('hi') || v.lang.includes('Hindi')) ||
-                   voices.find(v => v.lang.startsWith('mr') || v.lang.startsWith('gu')) ||
-                   voices[0];
-    };
-
-    loadVoices();
-    if (window.speechSynthesis.onvoiceschanged !== undefined) {
-      window.speechSynthesis.onvoiceschanged = loadVoices;
-    }
-  }
-
   // Load Data
   async function loadData() {
     try {
@@ -130,6 +109,7 @@
 
       seg.addEventListener('click', () => {
         jumpToStory(idx);
+        if (isPlaying) startAudio();
       });
       progressBarContainer.appendChild(seg);
     });
@@ -152,7 +132,7 @@
       item.addEventListener('click', () => {
         closeDrawer();
         jumpToStory(idx);
-        playCurrentStory();
+        startAudio();
       });
       drawerList.appendChild(item);
     });
@@ -188,6 +168,20 @@
       });
     }
 
+    // Set Audio Source
+    if (story.audio_url) {
+      audioPlayer.src = story.audio_url;
+      audioPlayer.playbackRate = currentSpeed;
+    }
+
+    // Preload next story audio
+    if (index + 1 < stories.length && stories[index + 1].audio_url) {
+      const preloadLink = document.createElement('link');
+      preloadLink.rel = 'prefetch';
+      preloadLink.href = stories[index + 1].audio_url;
+      document.head.appendChild(preloadLink);
+    }
+
     // Update Progress Segments
     const segments = progressBarContainer.querySelectorAll('.progress-segment');
     segments.forEach((seg, i) => {
@@ -210,133 +204,120 @@
     });
   }
 
-  // Audio Playback
-  function playCurrentStory() {
-    stopCurrentAudio();
-    const story = stories[currentIndex];
-    if (!story) return;
-
+  // Playback Control
+  function startAudio() {
     isPlaying = true;
-    updatePlayPauseUI(true);
-    voiceIndicator.classList.add('speaking');
-
-    if (!('speechSynthesis' in window)) {
-      // If speech synthesis not supported, simulate countdown
-      simulatePlayback(story);
-      return;
+    audioPlayer.playbackRate = currentSpeed;
+    const playPromise = audioPlayer.play();
+    if (playPromise !== undefined) {
+      playPromise.catch(err => {
+        console.warn('Playback blocked or pending user gesture:', err);
+      });
     }
-
-    const textToSpeak = `${story.category}. ${story.headline}. ${story.voiceover}`;
-    currentUtterance = new SpeechSynthesisUtterance(textToSpeak);
-    currentUtterance.lang = 'hi-IN';
-    if (hindiVoice) currentUtterance.voice = hindiVoice;
-    currentUtterance.rate = currentSpeed;
-    currentUtterance.pitch = 1.0;
-
-    // Track smooth progress for active segment
-    const activeSegment = progressBarContainer.children[currentIndex];
-    const innerBar = activeSegment ? activeSegment.querySelector('.progress-segment-inner') : null;
-    
-    // Estimate duration based on word count and speed
-    const wordCount = textToSpeak.split(/\s+/).length;
-    const estimatedSeconds = Math.max(4, (wordCount / (2.5 * currentSpeed)));
-    const startTime = Date.now();
-
-    clearInterval(progressInterval);
-    progressInterval = setInterval(() => {
-      if (!isPlaying || !innerBar) return;
-      const elapsed = (Date.now() - startTime) / 1000;
-      const pct = Math.min(100, (elapsed / estimatedSeconds) * 100);
-      innerBar.style.width = pct + '%';
-    }, 50);
-
-    currentUtterance.onend = () => {
-      voiceIndicator.classList.remove('speaking');
-      clearInterval(progressInterval);
-      if (innerBar) innerBar.style.width = '100%';
-
-      if (isPlaying) {
-        // Auto advance to next story after brief 0.4s pause!
-        autoAdvanceTimer = setTimeout(() => {
-          if (currentIndex < stories.length - 1) {
-            jumpToStory(currentIndex + 1);
-            playCurrentStory();
-          } else {
-            // Finished playlist
-            isPlaying = false;
-            updatePlayPauseUI(false);
-          }
-        }, 400);
-      }
-    };
-
-    currentUtterance.onerror = (e) => {
-      console.warn('Speech error, advancing:', e);
-      voiceIndicator.classList.remove('speaking');
-      clearInterval(progressInterval);
-    };
-
-    window.speechSynthesis.cancel(); // clear previous
-    window.speechSynthesis.speak(currentUtterance);
-  }
-
-  function simulatePlayback(story) {
-    const activeSegment = progressBarContainer.children[currentIndex];
-    const innerBar = activeSegment ? activeSegment.querySelector('.progress-segment-inner') : null;
-    let pct = 0;
-    const duration = 6000 / currentSpeed;
-    const step = 50;
-
-    progressInterval = setInterval(() => {
-      pct += (step / duration) * 100;
-      if (innerBar) innerBar.style.width = Math.min(100, pct) + '%';
-      if (pct >= 100) {
-        clearInterval(progressInterval);
-        if (currentIndex < stories.length - 1) {
-          jumpToStory(currentIndex + 1);
-          playCurrentStory();
-        } else {
-          isPlaying = false;
-          updatePlayPauseUI(false);
-        }
-      }
-    }, step);
   }
 
   function pauseAudio() {
     isPlaying = false;
-    updatePlayPauseUI(false);
-    voiceIndicator.classList.remove('speaking');
-    clearInterval(progressInterval);
-    clearTimeout(autoAdvanceTimer);
-    if ('speechSynthesis' in window) {
-      window.speechSynthesis.cancel();
-    }
+    audioPlayer.pause();
   }
 
-  function stopCurrentAudio() {
-    clearInterval(progressInterval);
-    clearTimeout(autoAdvanceTimer);
-    voiceIndicator.classList.remove('speaking');
-    if ('speechSynthesis' in window) {
-      window.speechSynthesis.cancel();
-    }
-  }
-
-  function updatePlayPauseUI(playing) {
-    if (playing) {
-      playIcon.classList.add('hidden');
-      pauseIcon.classList.remove('hidden');
+  function togglePlayPause() {
+    if (isPlaying) {
+      pauseAudio();
     } else {
-      playIcon.classList.remove('hidden');
-      pauseIcon.classList.add('hidden');
+      startAudio();
     }
   }
 
   function jumpToStory(idx) {
-    stopCurrentAudio();
+    audioPlayer.pause();
     renderStory(idx);
   }
+
+  // Audio Event Listeners
+  audioPlayer.addEventListener('play', () => {
+    isPlaying = true;
+    playIcon.classList.add('hidden');
+    pauseIcon.classList.remove('hidden');
+    voiceIndicator.classList.add('speaking');
+  });
+
+  audioPlayer.addEventListener('pause', () => {
+    isPlaying = false;
+    playIcon.classList.remove('hidden');
+    pauseIcon.classList.add('hidden');
+    voiceIndicator.classList.remove('speaking');
+  });
+
+  audioPlayer.addEventListener('timeupdate', () => {
+    if (!audioPlayer.duration) return;
+    const activeSeg = progressBarContainer.children[currentIndex];
+    if (activeSeg) {
+      const inner = activeSeg.querySelector('.progress-segment-inner');
+      if (inner) {
+        const pct = (audioPlayer.currentTime / audioPlayer.duration) * 100;
+        inner.style.width = pct + '%';
+      }
+    }
+  });
+
+  // AUTO-ADVANCE: When story audio finishes, smoothly move to next story!
+  audioPlayer.addEventListener('ended', () => {
+    const activeSeg = progressBarContainer.children[currentIndex];
+    if (activeSeg) {
+      const inner = activeSeg.querySelector('.progress-segment-inner');
+      if (inner) inner.style.width = '100%';
+      activeSeg.classList.add('completed');
+    }
+
+    if (currentIndex < stories.length - 1) {
+      // Auto-play next story after a 0.35s natural transition pause
+      setTimeout(() => {
+        jumpToStory(currentIndex + 1);
+        startAudio();
+      }, 350);
+    } else {
+      // Reached end of playlist
+      isPlaying = false;
+      playIcon.classList.remove('hidden');
+      pauseIcon.classList.add('hidden');
+      voiceIndicator.classList.remove('speaking');
+    }
+  });
+
+  audioPlayer.addEventListener('error', (e) => {
+    console.warn('Audio playback error on story:', currentIndex, e);
+    voiceIndicator.classList.remove('speaking');
+  });
+
+  // Speed Selector Buttons (1.0x, 1.5x, 2.0x)
+  speedButtons.forEach(btn => {
+    btn.addEventListener('click', () => {
+      speedButtons.forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      currentSpeed = parseFloat(btn.dataset.speed) || 1.5;
+      audioPlayer.playbackRate = currentSpeed;
+    });
+  });
+
+  // Play / Pause Button Listener
+  playPauseBtn.addEventListener('click', togglePlayPause);
+
+  prevBtn.addEventListener('click', () => {
+    if (currentIndex > 0) {
+      const wasPlaying = isPlaying;
+      jumpToStory(currentIndex - 1);
+      if (wasPlaying) startAudio();
+    }
+  });
+
+  nextBtn.addEventListener('click', () => {
+    if (currentIndex < stories.length - 1) {
+      const wasPlaying = isPlaying;
+      jumpToStory(currentIndex + 1);
+      if (wasPlaying) startAudio();
+    }
+  });
 
   // Zoom Lightbox Handlers
   function openZoomModal() {
@@ -360,7 +341,6 @@
     zoomModalImg.style.transform = `translate(${panX}px, ${panY}px) scale(${zoomScale})`;
   }
 
-  // Zoom Interactions (Pan & Zoom)
   zoomInBtn.addEventListener('click', () => {
     zoomScale = Math.min(4, zoomScale + 0.4);
     updateZoomTransform();
@@ -444,45 +424,7 @@
     initialPinchDistance = null;
   });
 
-  // Clipping Click Opens Zoom
   clippingFrame.addEventListener('click', openZoomModal);
-
-  // Playback Button Listeners
-  playPauseBtn.addEventListener('click', () => {
-    if (isPlaying) {
-      pauseAudio();
-    } else {
-      playCurrentStory();
-    }
-  });
-
-  prevBtn.addEventListener('click', () => {
-    if (currentIndex > 0) {
-      jumpToStory(currentIndex - 1);
-      if (isPlaying) playCurrentStory();
-    }
-  });
-
-  nextBtn.addEventListener('click', () => {
-    if (currentIndex < stories.length - 1) {
-      jumpToStory(currentIndex + 1);
-      if (isPlaying) playCurrentStory();
-    }
-  });
-
-  // Speed Selector Buttons
-  speedButtons.forEach(btn => {
-    btn.addEventListener('click', () => {
-      speedButtons.forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      currentSpeed = parseFloat(btn.dataset.speed) || 1.5;
-
-      // If currently playing, restart with new speed seamlessly
-      if (isPlaying) {
-        playCurrentStory();
-      }
-    });
-  });
 
   // Drawer Toggle Handlers
   function openDrawer() {
@@ -511,19 +453,20 @@
 
     if (e.code === 'Space') {
       e.preventDefault();
-      if (isPlaying) pauseAudio();
-      else playCurrentStory();
+      togglePlayPause();
     } else if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
       e.preventDefault();
       if (currentIndex < stories.length - 1) {
+        const wasPlaying = isPlaying;
         jumpToStory(currentIndex + 1);
-        if (isPlaying) playCurrentStory();
+        if (wasPlaying) startAudio();
       }
     } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
       e.preventDefault();
       if (currentIndex > 0) {
+        const wasPlaying = isPlaying;
         jumpToStory(currentIndex - 1);
-        if (isPlaying) playCurrentStory();
+        if (wasPlaying) startAudio();
       }
     } else if (e.key.toLowerCase() === 'z') {
       openZoomModal();
@@ -546,17 +489,18 @@
   function handleSwipe() {
     const diff = touchEndX - touchStartX;
     if (Math.abs(diff) > 60) {
+      const wasPlaying = isPlaying;
       if (diff < 0) {
         // Swipe left -> Next
         if (currentIndex < stories.length - 1) {
           jumpToStory(currentIndex + 1);
-          if (isPlaying) playCurrentStory();
+          if (wasPlaying) startAudio();
         }
       } else {
         // Swipe right -> Prev
         if (currentIndex > 0) {
           jumpToStory(currentIndex - 1);
-          if (isPlaying) playCurrentStory();
+          if (wasPlaying) startAudio();
         }
       }
     }
@@ -574,8 +518,7 @@
     );
   }
 
-  // Run on start
-  initSpeechEngine();
+  // Load playlist data on startup
   loadData();
 
 })();
