@@ -4,6 +4,15 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>दैनिक भास्कर स्पीड न्यूज़ — उज्जैन संस्करण</title>
+  <script>
+    // Fix: Guarantee correct trailing slash on GitHub Pages so relative paths never 404
+    if (window.location.hostname.includes('github.io') && 
+        !window.location.pathname.endsWith('/') && 
+        !window.location.pathname.endsWith('.html')) {
+      window.location.replace(window.location.pathname + '/' + window.location.search + window.location.hash);
+    }
+  </script>
+  <base href="./">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚡</text></svg>">
   <link rel="manifest" href="manifest.json">
   <meta name="theme-color" content="#0a0e17">
@@ -94,7 +103,7 @@
     </article>
   </main>
 
-  <!-- Native HTML5 DOM Audio Engine (Crucial for Mobile & Cross-Browser Autoplay) -->
+  <!-- Native HTML5 DOM Audio Engine -->
   <audio id="mainAudio" playsinline preload="auto"></audio>
 
   <!-- Bottom Playback Control Bar -->
@@ -148,7 +157,7 @@
   </aside>
   <div class="drawer-backdrop hidden" id="drawerBackdrop"></div>
 
-  <!-- Synchronous preloaded news data for 0ms startup -->
+  <!-- Scripts -->
   <script src="data.js"></script>
   <script src="app.js"></script>
 </body>

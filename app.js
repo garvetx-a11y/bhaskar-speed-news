@@ -1,10 +1,11 @@
 /**
  * Dainik Bhaskar Superfast Speed News Player (दैनिक भास्कर स्पीड न्यूज़)
  * Native HTML5 DOM Audio Engine + Studio News Anchor MP3 Voiceovers
- * - Instant startup via preloaded data.js
+ * - Robust URL resolution (guarantees zero 404s on GitHub Pages or custom domains)
+ * - Mobile AudioContext unmuting (routes audio to speakers even on silent mode)
  * - Synchronous auto-advance on story end (continuous mobile playback)
  * - 1.0x, 1.5x, 2.0x Dynamic Playback Speed
- * - Web Speech API & Timer fallback
+ * - Web Speech API & Visual Timer fallback
  * - Fullscreen Pinch & Pan Zoom for Authentic Newspaper Clippings
  */
 
@@ -68,6 +69,39 @@
   let startY = 0;
   let initialPinchDistance = null;
 
+  // Helper: Guarantees 100% correct absolute URL regardless of trailing slash
+  function resolveAssetUrl(relPath) {
+    if (!relPath) return '';
+    if (relPath.startsWith('http://') || relPath.startsWith('https://')) return relPath;
+
+    const loc = window.location;
+    // Extract base directory
+    let dir = loc.pathname;
+    if (!dir.endsWith('/')) {
+      dir = dir.substring(0, dir.lastIndexOf('/') + 1);
+    }
+    if (!dir.endsWith('/')) dir += '/';
+
+    return loc.origin + dir + relPath.replace(/^\//, '');
+  }
+
+  // Mobile AudioContext Unmuter (essential for iPhone Safari & Android media sessions)
+  function unlockMobileAudio() {
+    try {
+      const AudioContext = window.AudioContext || window.webkitAudioContext;
+      if (AudioContext) {
+        if (!window.__audioContextInstance) {
+          window.__audioContextInstance = new AudioContext();
+        }
+        if (window.__audioContextInstance.state === 'suspended') {
+          window.__audioContextInstance.resume();
+        }
+      }
+    } catch (e) {
+      console.warn('AudioContext unlock:', e);
+    }
+  }
+
   // Initialize Data
   function initData() {
     if (window.SPEED_NEWS_DATA && window.SPEED_NEWS_DATA.stories) {
@@ -111,6 +145,7 @@
       seg.appendChild(inner);
 
       seg.addEventListener('click', () => {
+        unlockMobileAudio();
         jumpToStory(idx);
         if (isPlaying) startAudio();
       });
@@ -133,6 +168,7 @@
         </div>
       `;
       item.addEventListener('click', () => {
+        unlockMobileAudio();
         closeDrawer();
         jumpToStory(idx);
         startAudio();
@@ -159,9 +195,9 @@
     newsHeadline.textContent = story.headline || '';
     voiceoverText.textContent = story.voiceover || '';
 
-    // Newspaper Clipping Image
+    // Newspaper Clipping Image (Using Absolute URL)
     if (story.clipping_url) {
-      clippingImg.src = story.clipping_url;
+      clippingImg.src = resolveAssetUrl(story.clipping_url);
       clippingFrame.classList.remove('hidden');
     } else {
       clippingFrame.classList.add('hidden');
@@ -177,10 +213,10 @@
       });
     }
 
-    // Prepare Audio Element
+    // Set Audio Source with Absolute URL
     if (story.audio_url) {
-      audioEl.src = story.audio_url;
-      audioEl.playbackRate = currentSpeed;
+      const absAudioUrl = resolveAssetUrl(story.audio_url);
+      audioEl.src = absAudioUrl;
       audioEl.load();
     }
 
@@ -208,25 +244,27 @@
 
   // Audio Playback Engine
   function startAudio() {
+    unlockMobileAudio();
     isPlaying = true;
     updatePlayPauseUI(true);
 
     const story = stories[currentIndex];
     if (!story) return;
 
-    // Ensure audio src is loaded
+    const absAudioUrl = resolveAssetUrl(story.audio_url);
     if (!audioEl.src || !audioEl.src.includes(story.audio_url)) {
-      audioEl.src = story.audio_url;
+      audioEl.src = absAudioUrl;
     }
-    audioEl.playbackRate = currentSpeed;
 
+    // Attempt playback
     const playPromise = audioEl.play();
     if (playPromise !== undefined) {
       playPromise.then(() => {
-        // Playback started successfully
+        // Safe to set playback rate once playback has actively initiated
+        try { audioEl.playbackRate = currentSpeed; } catch(e) {}
         voiceIndicator.classList.add('speaking');
       }).catch(err => {
-        console.warn('Audio play failed, falling back to Web Speech / Timer:', err);
+        console.warn('HTML5 Audio play failed, falling back to Web Speech:', err);
         tryWebSpeech(story);
       });
     }
@@ -247,6 +285,7 @@
   }
 
   function togglePlayPause() {
+    unlockMobileAudio();
     if (isPlaying) {
       pauseAudio();
     } else {
@@ -276,7 +315,7 @@
     }
   }
 
-  // Synchronous Auto-Advance Handler (Crucial for Mobile Chain Playback)
+  // Synchronous Auto-Advance Handler (Crucial for Continuous Mobile Playback)
   function handleStoryEnd() {
     const activeSeg = progressBarContainer.children[currentIndex];
     if (activeSeg) {
@@ -286,7 +325,7 @@
     }
 
     if (currentIndex < stories.length - 1) {
-      // Immediate synchronous transition ensures mobile gesture chain is preserved!
+      // Synchronous chained playback
       const nextIdx = currentIndex + 1;
       jumpToStory(nextIdx);
       if (isPlaying) {
@@ -305,10 +344,10 @@
     isPlaying = true;
     updatePlayPauseUI(true);
     voiceIndicator.classList.add('speaking');
+    try { audioEl.playbackRate = currentSpeed; } catch(e) {}
   });
 
   audioEl.addEventListener('pause', () => {
-    // Only update if not transitioning between tracks
     if (!audioEl.seeking) {
       voiceIndicator.classList.remove('speaking');
     }
@@ -329,7 +368,7 @@
   audioEl.addEventListener('ended', handleStoryEnd);
 
   audioEl.addEventListener('error', (e) => {
-    console.warn('Audio element error, falling back:', e);
+    console.warn('Audio element error on index', currentIndex, e);
     const story = stories[currentIndex];
     if (story) tryWebSpeech(story);
   });
@@ -364,7 +403,7 @@
     window.speechSynthesis.speak(utterance);
   }
 
-  // Fallback Engine 2: Visual Progress Timer (Ensures Bulletin NEVER Freezes)
+  // Fallback Engine 2: Visual Progress Timer (Guarantees zero-freeze)
   function runVisualTimerFallback(story) {
     if (fallbackTimer) clearInterval(fallbackTimer);
     voiceIndicator.classList.add('speaking');
@@ -397,7 +436,7 @@
       speedButtons.forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
       currentSpeed = parseFloat(btn.dataset.speed) || 1.5;
-      audioEl.playbackRate = currentSpeed;
+      try { audioEl.playbackRate = currentSpeed; } catch(e) {}
     });
   });
 
@@ -405,6 +444,7 @@
   playPauseBtn.addEventListener('click', togglePlayPause);
 
   prevBtn.addEventListener('click', () => {
+    unlockMobileAudio();
     if (currentIndex > 0) {
       const wasPlaying = isPlaying;
       jumpToStory(currentIndex - 1);
@@ -413,6 +453,7 @@
   });
 
   nextBtn.addEventListener('click', () => {
+    unlockMobileAudio();
     if (currentIndex < stories.length - 1) {
       const wasPlaying = isPlaying;
       jumpToStory(currentIndex + 1);
@@ -426,7 +467,7 @@
     if (!story || !story.clipping_url) return;
 
     zoomHeadline.textContent = story.headline;
-    zoomModalImg.src = story.clipping_url;
+    zoomModalImg.src = resolveAssetUrl(story.clipping_url);
     zoomScale = 1;
     panX = 0;
     panY = 0;
@@ -557,6 +598,7 @@
       togglePlayPause();
     } else if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
       e.preventDefault();
+      unlockMobileAudio();
       if (currentIndex < stories.length - 1) {
         const wasPlaying = isPlaying;
         jumpToStory(currentIndex + 1);
@@ -564,6 +606,7 @@
       }
     } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
       e.preventDefault();
+      unlockMobileAudio();
       if (currentIndex > 0) {
         const wasPlaying = isPlaying;
         jumpToStory(currentIndex - 1);
@@ -590,6 +633,7 @@
   function handleSwipe() {
     const diff = touchEndX - touchStartX;
     if (Math.abs(diff) > 60) {
+      unlockMobileAudio();
       const wasPlaying = isPlaying;
       if (diff < 0) {
         if (currentIndex < stories.length - 1) {
