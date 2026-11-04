@@ -1,0 +1,16 @@
+{
+  "name": "दैनिक भास्कर सुपरफास्ट स्पीड न्यूज़",
+  "short_name": "स्पीड न्यूज़",
+  "description": "उज्जैन दैनिक भास्कर 1.5x / 2.0x AI स्पीड न्यूज़ और अखबार की असली कटिंग",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#070a10",
+  "theme_color": "#0a0e17",
+  "icons": [
+    {
+      "src": "data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚡</text></svg>",
+      "sizes": "192x192 512x512",
+      "type": "image/svg+xml"
+    }
+  ]
+}
