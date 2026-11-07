@@ -505,6 +505,24 @@
 
   zoomCloseBtn.addEventListener('click', closeZoomModal);
 
+  const zoomShareBtn = document.getElementById('zoomShareBtn');
+  if (zoomShareBtn) {
+    zoomShareBtn.addEventListener('click', () => {
+      const story = stories[currentIndex];
+      if (!story) return;
+      const clipUrl = story.clipping_url ? resolveAssetUrl(story.clipping_url) : window.location.href;
+      if (navigator.share) {
+        navigator.share({
+          title: story.headline,
+          text: `${story.headline}\n\nदैनिक भास्कर स्पीड न्यूज़:\n${story.voiceover || ''}`,
+          url: window.location.href
+        }).catch(() => {});
+      } else {
+        window.open(clipUrl, '_blank');
+      }
+    });
+  }
+
   // Mouse Wheel Zoom
   zoomViewport.addEventListener('wheel', (e) => {
     e.preventDefault();
