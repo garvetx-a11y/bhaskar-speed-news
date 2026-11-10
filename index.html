@@ -161,8 +161,17 @@
   </aside>
   <div class="drawer-backdrop hidden" id="drawerBackdrop"></div>
 
-  <!-- Scripts with Cache Busting -->
-  <script src="data.js?v=20261104_1430"></script>
-  <script src="app.js?v=20261104_1430"></script>
+  <!-- Scripts with Dynamic Cache Busting -->
+  <script>
+    (function() {
+      const v = Date.now();
+      const s1 = document.createElement('script');
+      s1.src = 'data.js?v=' + v;
+      document.body.appendChild(s1);
+      const s2 = document.createElement('script');
+      s2.src = 'app.js?v=' + v;
+      document.body.appendChild(s2);
+    })();
+  </script>
 </body>
 </html>
